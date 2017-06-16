@@ -5,6 +5,31 @@
 新建、就绪(Runnable)、阻塞(Blocked)、死亡(Dead)
 ## synchronized
 
+## interrupt
+当Thread收到interrupt信号时，可能的两种结果：要么其线程对象中的isinterrupt属性被置为true；要么抛出InterruptedException异常。注意，如果抛出了InterruptedException异常，那么其isinterrupt属性不会被置为true。
+
+* thread.isInterrupted()和Thread.interrupted()的区别
+```java
+    public static boolean interrupted() {
+        return currentThread().isInterrupted(true);
+    }
+
+    public boolean isInterrupted() {
+        return isInterrupted(false);
+    }
+
+    /**
+     * Tests if some Thread has been interrupted.  The interrupted state
+     * is reset or not based on the value of ClearInterrupted that is
+     * passed.
+     */
+    private native boolean isInterrupted(boolean ClearInterrupted);
+```
+
+可以看到，对象方法的thread.isInterrupted()和静态方法的Thread.interrupted()都是调用的JNI底层的isInterrupted()方法。但是区别在于这个ClearInterrupted参数，前者传入的false，后者传入的是true。相信各位读者都已经猜出其中的含义了，ClearInterrupted参数向操作系统层指明是否在获取状态后将当前线程的isInterrupt属性重置为（或者叫恢复，或者叫清除）false。
+
+这就意味着当某个线程的isInterrupt属性成功被置为true后，如果您使用对象方法thread.isInterrupted()获取值，无论您获取多少次得到的返回值都是true；但是如果您使用静态方法Thread.interrupted()获取值，那么只有第一次获取的结果是true，随后线程的isInterrupt属性将被恢复成false，后续无论使用Thread.interrupted()调用还是使用thread.isInterrupted()调用，获取的结果都是false。
+
 ## wait(), notify(), notifyAll()
 wait()的作用是让当前线程进入等待状态，同时，wait()也会让当前线程释放它所持有的锁。而notify()和notifyAll()的作用，则是唤醒当前对象上的等待线程；notify()是唤醒单个线程，而notifyAll()是唤醒所有的线程。
 
@@ -114,6 +139,58 @@ public ThreadPoolExecutor(int corePoolSize,
     
     当然也可以根据应用场景需要来实现RejectedExecutionHandler接口自定义策略。如记录日志或持久化不能处理的任务。
 
+## execute方法和submit方法的区别
+
+* execute方法：所有实现了Runnable接口的任务都可以使用execute方法进行提交。而实现了Runnable接口的任务，并没有提供任何“标准”的方式为我们返回任务的执行结果（这是我们还没有讲到的知识点）。线程在线程池中运行结束了，就结束了。所以，使用execute方法提交的任务，程序员并不能在任务执行完成后，获得一个“标准”的执行结果。
+
+* submit方法：submit方法提交的任务是实现了Callable接口的任务（这是我们还没有讲到的知识点）。Callable接口的特性是，在其运行完成后，会返回一个“标准”的执行结果。
+
+## Semaphore：信号量
+
+Semaphore信号量，是concurrent包的一个重要工具类，它通过申请和回收“证书”，实现多个线程对同一资源的访问控制。具体的做法是，某个线程在访问某个（可能出现资源抢占的）资源的时候，首先向Semaphore对象申请“证书”，如果没有拿到“证书”就一直阻塞；当拿到“证书”后，线程就解除阻塞状态，然后访问资源；在完成资源操作后，再向Semaphore对象归还“证书”
+
+* 申请/获取证书：
+
+    void acquire()：从此信号量获取一个许可，在Semaphore能够提供一个许可前，当前线程将一直阻塞等待。如果在等待过程中，当前线程收到了interrupt信号，那么将抛出InterruptedException异常。
+
+    void acquire(permits)：从此信号量获取permits个许可，在Semaphore能够提供permits个许可前，当前线程将一直阻塞等待。如果在等待过程中，当前线程收到了interrupt信号，那么将抛出InterruptedException异常。
+
+    void acquireUninterruptibly()：从此信号量获取一个许可，在Semaphore能够提供一个许可前，当前线程将一直阻塞等待。使用这个方法获取许可时，不会受到线程interrupt信号的影响。
+
+    void acquireUninterruptibly(permits)：从此信号量获取permits个许可，在Semaphore能够提供permits个许可前，当前线程将一直阻塞等待。使用这个方法获取许可时，不会受到线程interrupt信号的影响。
+
+    boolean tryAcquire()：从此信号量获取一个许可，如果无法获取，线程并不会阻塞在这里。如果获取到了许可，则返回true，其他情况返回false。
+
+    boolean tryAcquire(permits)：从此信号量获取permits个许可，如果无法获取，线程并不会阻塞在这里。如果获取到了许可，则返回true，其他情况返回false。
+
+    boolean tryAcquire(int permits, long timeout, TimeUnit unit)：从此信号量获取permits个许可，如果无法获取，则当前线程等待设定的时间。如果超过等待时间后，还是没有拿到许可，则解除等待继续执行。如果获取到了许可，则返回true，其他情况返回false。
+
+* 证书状态：
+
+    int availablePermits()：返回此信号量中当前可用的许可数。
+
+    int getQueueLength()：返回正在等待获取的线程的估计数目。该值仅是估计的数字，因为在此方法遍历内部数据结构的同时，线程的数目可能动态地变化。此方法用于监视系统状态，不用于同步控制。
+
+    boolean hasQueuedThreads()：查询是否有线程正在等待获取。注意，因为同时可能发生取消，所以返回 true 并不保证有其他线程等待获取许可。此方法主要用于监视系统状态。
+
+    boolean isFair()：如果此信号量的公平设置为 true，则返回 true。
+
+* 释放/返还证书：
+
+    void release()：释放一个许可，将其返回给信号量。最好将这个方法的调用，放置在finally程序块中执行。
+
+    void release(permits)：释放给定数目的许可，将其返回到信号量。最好将这个方法的调用，放置在finally程序块中执行。
+
+* fair：公平与非公平
+
+    Semaphore一共有两个构造函数，分别是：Semaphore(int permits)和Semaphore(int permits, boolean fair)；permits是指由Semaphore信号量控制的“证书”数量。fair参数是设置这个信号量对象的工作方式。
+
+当fair参数为true时，信号量将以“公平方式”运行。即首先申请证书，并进入阻塞状态的线程，将有权利首先获取到证书；当fair参数为false时，信号量对象将不会保证“先来先得”。默认情况下，Semaphore采用“非公平”模式运行。
+
+
+## CountDownLatch：同步器
+
+
 # Callable<V>
 
 ```java
@@ -168,6 +245,103 @@ public interface Callable<V> {
 ```
 
 Future接口中的get方法，将会是当前线程进入阻塞状态。直到目标线程执行完毕，并且得到目标线程的返回结果。
+
+## ReentrantLock
+
+### tryAcquire()
+公平锁的tryAcquire()在ReentrantLock.java的FairSync类中实现，源码如下：
+```java
+        protected final boolean tryAcquire(int acquires) {
+            // 获取“当前线程”
+            final Thread current = Thread.currentThread();
+            // 获取“独占锁”的状态
+            int c = getState();
+            // c=0意味着“锁没有被任何线程锁拥有”
+            if (c == 0) {
+                // 若“锁没有被任何线程锁拥有”，
+                // 则判断“当前线程”是不是CLH队列中的第一个线程线程，
+                // 若是的话，则获取该锁，设置锁的状态，并切设置锁的拥有者为“当前线程”。
+                if (!hasQueuedPredecessors() &&
+                    compareAndSetState(0, acquires)) {
+                    setExclusiveOwnerThread(current);
+                    return true;
+                }
+            }
+            else if (current == getExclusiveOwnerThread()) {
+                // 如果“独占锁”的拥有者已经为“当前线程”，
+                // 则将更新锁的状态。
+                int nextc = c + acquires;
+                if (nextc < 0)
+                    throw new Error("Maximum lock count exceeded");
+                setState(nextc);
+                return true;
+            }
+            return false;
+        }
+```
+
+说明：根据代码，我们可以分析出，tryAcquire()的作用就是尝试去获取锁。注意，这里只是尝试！
+尝试成功的话，返回true；尝试失败的话，返回false，后续再通过其它办法来获取该锁。后面我们会说明，在尝试失败的情况下，是如何一步步获取锁的。
+
+### hasQueuedPredecessors()
+
+```java
+   /**
+     * Queries whether any threads have been waiting to acquire longer
+     * than the current thread.
+     *
+     * <p>An invocation of this method is equivalent to (but may be
+     * more efficient than):
+     *  <pre> {@code
+     * getFirstQueuedThread() != Thread.currentThread() &&
+     * hasQueuedThreads()}</pre>
+     *
+     * <p>Note that because cancellations due to interrupts and
+     * timeouts may occur at any time, a {@code true} return does not
+     * guarantee that some other thread will acquire before the current
+     * thread.  Likewise, it is possible for another thread to win a
+     * race to enqueue after this method has returned {@code false},
+     * due to the queue being empty.
+     *
+     * <p>This method is designed to be used by a fair synchronizer to
+     * avoid <a href="AbstractQueuedSynchronizer#barging">barging</a>.
+     * Such a synchronizer's {@link #tryAcquire} method should return
+     * {@code false}, and its {@link #tryAcquireShared} method should
+     * return a negative value, if this method returns {@code true}
+     * (unless this is a reentrant acquire).  For example, the {@code
+     * tryAcquire} method for a fair, reentrant, exclusive mode
+     * synchronizer might look like this:
+     *
+     *  <pre> {@code
+     * protected boolean tryAcquire(int arg) {
+     *   if (isHeldExclusively()) {
+     *     // A reentrant acquire; increment hold count
+     *     return true;
+     *   } else if (hasQueuedPredecessors()) {
+     *     return false;
+     *   } else {
+     *     // try to acquire normally
+     *   }
+     * }}</pre>
+     *
+     * @return {@code true} if there is a queued thread preceding the
+     *         current thread, and {@code false} if the current thread
+     *         is at the head of the queue or the queue is empty
+     * @since 1.7
+     */
+    public final boolean hasQueuedPredecessors() {
+        // The correctness of this depends on head being initialized
+        // before tail and on head.next being accurate if the current
+        // thread is first in queue.
+        Node t = tail; // Read fields in reverse initialization order
+        Node h = head;
+        Node s;
+        return h != t &&
+            ((s = h.next) == null || s.thread != Thread.currentThread());
+    }
+```
+通过代码能分析出hasQueuedPredecessors() 是通过判断"当前线程"是不是在CLH队列的队首，来返回AQS中是不是有比“当前线程”等待更久的线程。
+
 
 # 高级类
 ## ThreadLocal类
